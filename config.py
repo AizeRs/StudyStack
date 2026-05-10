@@ -7,9 +7,12 @@ class LLMSettings(BaseModel):
     api_key: str
     model_name: str
 
+class SearchSettings(BaseModel):
+    api_key: str
 
 class Settings(BaseSettings):
     llm: LLMSettings
+    search: SearchSettings
     model_config = SettingsConfigDict(env_file=".env", env_nested_delimiter="__")
 
 
