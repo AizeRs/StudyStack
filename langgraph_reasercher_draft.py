@@ -1,20 +1,18 @@
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
-from pydantic import BaseModel, Field
-from typing import Annotated
 from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
-from langchain_core.messages import AnyMessage, HumanMessage, ToolMessage, AIMessage
+from langchain_core.messages import HumanMessage, ToolMessage, AIMessage, SystemMessage
 from langgraph.prebuilt import ToolNode
 
-from config import settings
+from config import llm
 from search_tool_draft import search_web, read_webpage
-from langchain_openai import ChatOpenAI
 from langgraph.errors import GraphRecursionError
+
 import logging
+from schema import ResearcherState, ResearchPaperState
 
 
-SYSTEM_PROMPT = """
+SYSTEM_PROMPT_RESEARCHER = """
 Role: You are a Senior Research Specialist. Your mission is to conduct exhaustive investigations and gather high-quality "raw material" for a professional writer. You do not write the final narrative; instead, you provide the structural foundation and evidence required to create a masterpiece.
 Available Tools:
 search_web: Use this to identify key sources, news, academic papers, and diverse perspectives.
@@ -44,19 +42,8 @@ Verbatim Accuracy: Quotes must be 100% accurate to the source text.
 Tone: Objective, analytical, and professional.
 """
 
-class ResearcherState(BaseModel):
-    messages: Annotated[list[AnyMessage], add_messages] = Field(default_factory=list)
-
-
 my_tools = [search_web, read_webpage]
 tool_node = ToolNode(my_tools)
-
-llm = ChatOpenAI(
-    base_url="http://localhost:5001/v1/",
-    api_key="sk-no-key-needed",
-    model="qwen3.5-2B",
-    temperature=0.0
-)
 
 
 def agent_node(state: ResearcherState) -> dict:
@@ -76,50 +63,56 @@ def should_continue(state: ResearcherState) -> str:
     logging.info("Модель выдала ответ, завершаем цикл")
     return "end"
 
-def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - [%(levelname)s] - %(message)s"
-    )
+
+workflow = StateGraph(ResearcherState)
+
+workflow.add_node("agent", agent_node)
+workflow.add_node("tools", tool_node)
+
+workflow.add_edge(START, "agent")
+
+workflow.add_conditional_edges(
+    "agent",
+    should_continue,
+    {
+        "continue": "tools",
+        "end": END
+    }
+)
+
+workflow.add_edge("tools", "agent")
+
+checkpointer = MemorySaver()
+
+app = workflow.compile(checkpointer=checkpointer)
 
 
-    workflow = StateGraph(ResearcherState)
 
-    workflow.add_node("agent", agent_node)
-    workflow.add_node("tools", tool_node)
+def run_researcher_subgraph_node(state: ResearchPaperState) -> dict:
 
-    workflow.add_edge(START, "agent")
-
-    workflow.add_conditional_edges(
-        "agent",
-        should_continue,
-        {
-            "continue": "tools",
-            "end": END
-        }
-    )
-
-    workflow.add_edge("tools", "agent")
-
-    checkpointer = MemorySaver()
-
-    app = workflow.compile(checkpointer=checkpointer)
-
-    config : RunnableConfig = {
-        "configurable": {"thread_id": "user_1"},
+    config: RunnableConfig = {
+        "configurable": {"thread_id": f"researcher_{state.research_id}"},
         "recursion_limit": 15
     }
 
-    task = input("Введите тему для исследования: ")
+    task = state.research_topic
+
+    if state.feedback and state.review_result_first == "needs_facts":
+        input_data = {"messages": [HumanMessage(content=f"Критик забраковал твой сбор данных. Замечание: {state.feedback}. Исправь!")]}
+    else:
+        input_data = {
+            "messages": [
+                SystemMessage(content=SYSTEM_PROMPT_RESEARCHER),
+                HumanMessage(content=SYSTEM_PROMPT_RESEARCHER + f"TASK: {task}. Start your research now.")
+            ]}
 
     try:
-        logging.info("Начальный инференс")
-        initial_input = {"messages": [HumanMessage(content=SYSTEM_PROMPT + f"TASK: {task}. Start your research now.")]}
+        logging.info("Инференс сборщика данных")
 
-        result = app.invoke(initial_input, config=config)
+        result = app.invoke(input_data, config=config)
 
         final_pydantic_state = ResearcherState(**result)
-        print("Финальный текст:\n", final_pydantic_state.messages[-1].content)
+        return {"raw_facts": final_pydantic_state.messages[-1].content}
 
     except GraphRecursionError:
         logging.info("Достигнут лимит вызовов тулов. Начинаем graceful shutdown")
@@ -130,13 +123,15 @@ def main():
 
         if messages and isinstance(messages[-1], AIMessage):
             logging.info("Цикл оборвался до результата выполнения тула. Удаляем последний ответ модели и добавляем системное уведомление.")
+            messages.pop(-1)
 
         if messages and isinstance(messages[-1], ToolMessage):
             messages[-1].content += "\n\n[СИСТЕМНОЕ УВЕДОМЛЕНИЕ]: Лимит поиска исчерпан. Сформируй итоговый ответ на основе этих данных."
 
+            final_result = llm.invoke(messages)
+
+            return {"raw_facts": final_result.content}
+
         else:
             print(f"Ошибка! Невозможно добавить системное уведомление. {len(messages)=} {type(messages[-1])=}")
-
-
-if __name__ == "__main__":
-    main()
+            raise
