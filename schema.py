@@ -14,26 +14,35 @@ class ResearcherState(BaseModel):
 class ReviewerState(BaseModel):
     messages: Annotated[list[AnyMessage], add_messages] = Field(default_factory=list)
 
+    feedback: Optional[str] = None
+    scores: Optional[list[float]] = None
+    review_result: Optional[Literal["needs_facts", "needs_rewrite", "approved"]] = None
+
 
 class ResearchPaperState(BaseModel):
     research_topic: str
 
     research_id: int
 
-    # from researcher
+    # researcher
     raw_facts: Optional[str] = None
 
-    #from writer
+    extra_research_forbidden: bool = False
+
+    facts_version: int = 1
+
+    # writer
     main_paper_text: Optional[str] = None
 
-    #from reviewer
-    feedback: Optional[str] = None
-    review_result_first: Optional[Literal["needs_facts", "needs_rewrite", "approved"]] = None
+    # macro reviewer
+    macro_reviewer_feedback: Optional[str] = None
+    macro_reviewer_result: Optional[Literal["needs_facts", "needs_rewrite", "approved"]] = None
+    macro_reviewer_scores: Optional[list[float]] = None
 
-    score: Optional[float] = None
+    macro_reviewer_iteration: int = 1
 
 
-class FirstReviewerResponse(BaseModel):
+class BaseFirstReviewerResponse(BaseModel):
     feedback: str = Field(
         description="Detailed, actionable feedback. Focus ONLY on macro-level issues: hallucinations, missing crucial data from raw_facts, or broken logical structure. Use bullet points for specific corrections."
     )
@@ -45,6 +54,8 @@ class FirstReviewerResponse(BaseModel):
                     "4. Structure (Logical flow between paragraphs), "
                     "5. Objectivity (Maintains academic, neutral tone)."
     )
+
+class FirstReviewerResponse(BaseFirstReviewerResponse):
     review_result: Literal["needs_facts", "needs_rewrite", "approved"] = Field(
         description="Routing decision: "
                     "- 'needs_facts': The raw research data is fundamentally missing critical information required to answer the prompt. "
@@ -52,4 +63,9 @@ class FirstReviewerResponse(BaseModel):
                     "- 'approved': The text is solidly grounded, well-structured, and all scores are >= 4.0."
     )
 
-
+class NoFactsFirstReviewerResponse(BaseFirstReviewerResponse):
+    review_result: Literal["needs_rewrite", "approved"] = Field(
+        description="Routing decision: "
+                    "- 'needs_rewrite': The data is sufficient, but the text fails the metrics (any score < 4.0) or contains hallucinations. "
+                    "- 'approved': The text is solidly grounded, well-structured, and all scores are >= 4.0."
+    )

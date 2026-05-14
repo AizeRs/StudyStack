@@ -1,15 +1,21 @@
 from langchain_openai import ChatOpenAI
-from pydantic import Field, BaseModel, model_validator
+from pydantic import Field, BaseModel, model_validator, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 class LLMSettings(BaseModel):
     base_url: str
-    api_key: str
+    api_key: SecretStr
     model_name: str
 
-class SearchSettings(BaseModel):
-    api_key: str
+class ResearcherSettings(BaseModel):
+    api_key: SecretStr
+    recursion_limit: int = Field(default=40)
+
+class ReviewersSettings(BaseModel):
+    macro_reviewer_max_iterations: int = Field(default=4)
+    macro_reviewer_first_threshold: float = Field(default=4.5)
+    macro_reviewer_second_threshold: float = Field(default=4.0)
 
 
 class Settings(BaseSettings):
@@ -18,8 +24,13 @@ class Settings(BaseSettings):
     local_llm: Optional[LLMSettings] = None
     cheap_llm: Optional[LLMSettings] = None
 
-    search: SearchSettings
+    researchers: ResearcherSettings
+
+    reviewers: ReviewersSettings = ReviewersSettings()
+
+
     model_config = SettingsConfigDict(env_file=".env", env_nested_delimiter="__")
+
 
     @model_validator(mode='after')
     def check_llm_config(self) -> 'Settings':

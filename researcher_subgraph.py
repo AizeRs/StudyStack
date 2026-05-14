@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, START, END
@@ -88,17 +90,37 @@ app = workflow.compile(checkpointer=checkpointer)
 
 
 
-def run_researcher_subgraph_node(state: ResearchPaperState) -> dict:
+def run_researcher_subgraph_node(state: ResearchPaperState, config: RunnableConfig) -> dict:
 
-    config: RunnableConfig = {
-        "configurable": {"thread_id": f"researcher_{state.research_id}"},
-        "recursion_limit": 15
+    session_id = uuid4().hex[:8]
+
+    researcher_config: RunnableConfig = {
+        "configurable": {"thread_id": f"researcher_{state.research_id}_{session_id}"},
+        "recursion_limit": config.get("configurable", {}).get("researcher_recursion_limit", 20),
     }
 
     task = state.research_topic
+    is_incremental_search = state.macro_reviewer_feedback and state.macro_reviewer_result == "needs_facts"
 
-    if state.feedback and state.review_result_first == "needs_facts":
-        input_data = {"messages": [HumanMessage(content=f"Критик забраковал твой сбор данных. Замечание: {state.feedback}. Исправь!")]}
+    if is_incremental_search:
+        delta_prompt = f"""
+            Original Topic: {task}
+            Current Research: {state.raw_facts}
+            The writer is trying to draft the paper, but the Reviewer noted missing crucial information.
+            Reviewer Feedback: {state.macro_reviewer_feedback}
+            IMPORTANT: We already have the foundational data. 
+            Your job is ONLY to find the specific missing facts requested by the reviewer. 
+            Do not do a general search. Do not send the text of the current research again. 
+            Only send the extension of it - missing specific facts which you were asked for.
+            """
+
+        input_data = {
+            "messages": [
+                SystemMessage(content=SYSTEM_PROMPT_RESEARCHER),
+                HumanMessage(content=delta_prompt)
+            ]
+        }
+
     else:
         input_data = {
             "messages": [
@@ -109,15 +131,21 @@ def run_researcher_subgraph_node(state: ResearchPaperState) -> dict:
     try:
         logging.info("Инференс сборщика данных")
 
-        result = app.invoke(input_data, config=config)
+        result = app.invoke(input_data, config=researcher_config)
 
         final_pydantic_state = ResearcherState(**result)
+        if is_incremental_search:
+            return {"raw_facts": state.raw_facts + "\n\n--- ADDITIONAL RESEARCH DATA (PARTIAL) ---\n\n"
+                                 + final_pydantic_state.messages[-1].content,
+                    "extra_research_forbidden": True,
+                    "facts_version": state.facts_version + 1,
+                    "macro_reviewer_iteration": 1}
         return {"raw_facts": final_pydantic_state.messages[-1].content}
 
     except GraphRecursionError:
         logging.info("Достигнут лимит вызовов тулов. Начинаем graceful shutdown")
 
-        crash_state = app.get_state(config)
+        crash_state = app.get_state(researcher_config)
 
         messages = crash_state.values.get("messages", [])
 
@@ -129,6 +157,13 @@ def run_researcher_subgraph_node(state: ResearchPaperState) -> dict:
             messages[-1].content += "\n\n[СИСТЕМНОЕ УВЕДОМЛЕНИЕ]: Лимит поиска исчерпан. Сформируй итоговый ответ на основе этих данных."
 
             final_result = llm.invoke(messages)
+
+            if is_incremental_search:
+                return {"raw_facts": state.raw_facts + "\n\n--- ADDITIONAL RESEARCH DATA (PARTIAL) ---\n\n" +
+                                     final_result.content,
+                        "extra_research_forbidden": True,
+                        "facts_version": state.facts_version + 1,
+                        "macro_reviewer_iteration": 1}
 
             return {"raw_facts": final_result.content}
 
