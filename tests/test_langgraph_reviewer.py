@@ -1,11 +1,10 @@
 from unittest.mock import patch, MagicMock
-import pytest
-from langchain_core.messages import SystemMessage, HumanMessage
-from schema import ResearchPaperState, FirstReviewerResponse, NoFactsFirstReviewerResponse
-import reviewer_subgraph
+from langchain_core.messages import SystemMessage
+from app.schema import ResearchPaperState, FirstReviewerResponse, NoFactsFirstReviewerResponse
+from app.agents import reviewer
 
 
-@patch('reviewer_subgraph.llm')
+@patch('app.agents.reviewer.llm')
 def test_run_macro_reviewer_iteration_1_rewrite(mock_llm: MagicMock):
     # Настройка мока для структурированного вывода
     mock_structured_llm = MagicMock()
@@ -27,7 +26,7 @@ def test_run_macro_reviewer_iteration_1_rewrite(mock_llm: MagicMock):
         facts_version=1
     )
 
-    result = reviewer_subgraph.run_macro_reviewer_subgraph_node(state, {})
+    result = reviewer.run_macro_reviewer_subgraph_node(state, {})
 
     assert result["macro_reviewer_result"] == "needs_rewrite"
     assert result["macro_reviewer_iteration"] == 2
@@ -39,7 +38,7 @@ def test_run_macro_reviewer_iteration_1_rewrite(mock_llm: MagicMock):
     assert "facts" in sent_messages[1].content.lower()
 
 
-@patch('reviewer_subgraph.llm')
+@patch('app.agents.reviewer.llm')
 def test_run_macro_reviewer_needs_facts(mock_llm: MagicMock):
     mock_structured_llm = MagicMock()
     fake_response = FirstReviewerResponse(
@@ -59,12 +58,12 @@ def test_run_macro_reviewer_needs_facts(mock_llm: MagicMock):
         extra_research_forbidden=False
     )
 
-    result = reviewer_subgraph.run_macro_reviewer_subgraph_node(state, {})
+    result = reviewer.run_macro_reviewer_subgraph_node(state, {})
 
     assert result["macro_reviewer_result"] == "needs_facts"
 
 
-@patch('reviewer_subgraph.llm')
+@patch('app.agents.reviewer.llm')
 def test_run_macro_reviewer_intermediate_iteration(mock_llm: MagicMock):
     mock_structured_llm = MagicMock()
     fake_response = NoFactsFirstReviewerResponse(
@@ -85,7 +84,7 @@ def test_run_macro_reviewer_intermediate_iteration(mock_llm: MagicMock):
         macro_reviewer_feedback="Previous feedback."
     )
 
-    reviewer_subgraph.run_macro_reviewer_subgraph_node(state, {})
+    reviewer.run_macro_reviewer_subgraph_node(state, {})
 
     # Проверка промежуточной итерации
     sent_messages = mock_structured_llm.invoke.call_args[0][0]
@@ -96,7 +95,7 @@ def test_run_macro_reviewer_intermediate_iteration(mock_llm: MagicMock):
     mock_llm.with_structured_output.assert_called_with(NoFactsFirstReviewerResponse, method="function_calling")
 
 
-@patch('reviewer_subgraph.llm')
+@patch('app.agents.reviewer.llm')
 def test_run_macro_reviewer_final_iteration(mock_llm: MagicMock):
     mock_structured_llm = MagicMock()
     fake_response = NoFactsFirstReviewerResponse(
@@ -118,7 +117,7 @@ def test_run_macro_reviewer_final_iteration(mock_llm: MagicMock):
         macro_reviewer_feedback="Fix final summary."
     )
 
-    result = reviewer_subgraph.run_macro_reviewer_subgraph_node(state, {})
+    result = reviewer.run_macro_reviewer_subgraph_node(state, {})
 
     assert result["macro_reviewer_result"] == "approved"
 

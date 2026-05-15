@@ -1,7 +1,10 @@
+from pathlib import Path
 from langchain_openai import ChatOpenAI
 from pydantic import Field, BaseModel, model_validator, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 class LLMSettings(BaseModel):
     base_url: str
@@ -29,7 +32,8 @@ class Settings(BaseSettings):
     reviewers: ReviewersSettings = ReviewersSettings()
 
 
-    model_config = SettingsConfigDict(env_file=".env", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(env_file=BASE_DIR / ".env",
+                                      env_nested_delimiter="__")
 
 
     @model_validator(mode='after')

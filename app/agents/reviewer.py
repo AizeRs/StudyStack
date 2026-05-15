@@ -4,10 +4,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from config import llm, settings
+from app.config import llm
 
 import logging
-from schema import ResearchPaperState, ReviewerState, FirstReviewerResponse, NoFactsFirstReviewerResponse
+from app.schema import ResearchPaperState, ReviewerState, FirstReviewerResponse, NoFactsFirstReviewerResponse
 
 
 def get_macro_reviewer_prompt(extra_research_forbidden: bool) -> str:

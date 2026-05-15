@@ -1,10 +1,9 @@
 import requests
 from pydantic import BaseModel, Field
 
-from config import settings, cheap_llm
-from langchain_openai import ChatOpenAI
+from app.config import cheap_llm
 from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage, ToolMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from ddgs import DDGS
 import logging
 
@@ -88,66 +87,3 @@ def read_webpage(url: str):
         logging.error(f"Ошибка при вызове cheap_llm для сжатия: {e}")
         # Фолбэк: если LLM упала (например, RateLimit), возвращаем текст-заглушку
         return "Доступ к read_webpage временно ограничен (Rate Limit Exceeded). Используйте для отчёта уже собранные сведения."
-
-
-
-
-def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - [%(levelname)s] - %(message)s"
-    )
-
-    llm = ChatOpenAI(
-        model=settings.llm.model_name,
-        api_key=settings.llm.api_key,
-        base_url=settings.llm.base_url,
-        temperature=0.0,
-        extra_body={"thinking": {"type": "disabled"}}
-    )
-
-    researcher_llm = llm.bind_tools([search_web, read_webpage])
-    messages = [HumanMessage(content="Найди информацию для доклада на тему: Исследование развития искусственного интелекта в период с 2024 по 2026 год. Рост рынка ИИ, числа пользователей, предоставляемого функционала, количества компаний связанных с ИИ. Анализ этих показателей.")]
-
-    max_retries = 5
-    cur_retry = 0
-
-    while True:
-
-        if cur_retry == max_retries:
-            logging.warning("Лимит исчерпан. Форсируем ответ.")
-
-            messages[
-                -1].content += "\n\n[СИСТЕМНОЕ УВЕДОМЛЕНИЕ]: Лимит поиска исчерпан. Сформируй итоговый ответ на основе этих данных."
-
-            final_fallback_response = llm.invoke(messages)
-
-            print(final_fallback_response.content)
-            break
-
-        response = researcher_llm.invoke(messages)
-        messages.append(response)
-
-        if not response.tool_calls:
-            logging.info("Агент завершил работу и сформировал ответ.")
-            print(response.content)
-            break
-
-        for tool_call in response.tool_calls:
-            tool_name = tool_call["name"]
-            tool_args = tool_call["args"]
-
-            logging.info(f"🛠️ Агент вызывает инструмент: {tool_name} с аргументами {tool_args}")
-
-            if tool_name == "search_web":
-                result = search_web.invoke(tool_args)
-            elif tool_name == "read_webpage":
-                result = read_webpage.invoke(tool_args)
-            else:
-                result = f"Ошибка: неизвестный инструмент {tool_name}"
-
-            messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
-        cur_retry += 1
-
-if __name__ == "__main__":
-    main()

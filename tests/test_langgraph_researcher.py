@@ -1,19 +1,19 @@
 from unittest.mock import patch, MagicMock
-import pytest
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphRecursionError
 
-from schema import ResearchPaperState
-import researcher_subgraph
+from app.schema import ResearchPaperState
+from app.agents import researcher
+
 
 # Патчим метод invoke напрямую в модуле, где тулы были определены
 # Это единственный выход, так как добавление оригинальных функций тулов в файле ресерчера происходит
 # сразу же во время импортирования функции run_researcher_subgraph_node в файл с тестами
-# и патчи @patch('langgraph_researcher_draft.search_web') не успевают сработать
-@patch('search_tool_draft.read_webpage.func')
-@patch('search_tool_draft.search_web.func')
-@patch('researcher_subgraph.llm')
+# и патчи @patch('app.agents.researcher.search_web') не успевают сработать
+@patch('app.tools.search.read_webpage.func')
+@patch('app.tools.search.search_web.func')
+@patch('app.agents.researcher.llm')
 def test_run_researcher_subgraph_node(mock_llm: MagicMock,
                                       mock_search_web_func: MagicMock,
                                       mock_read_webpage_func: MagicMock):
@@ -48,16 +48,16 @@ def test_run_researcher_subgraph_node(mock_llm: MagicMock,
     state = ResearchPaperState(research_topic="where can i buy the best pizza?", research_id=1)
     config: RunnableConfig = {"configurable": {"researcher_recursion_limit": 10}}
 
-    result = researcher_subgraph.run_researcher_subgraph_node(state, config)
+    result = researcher.run_researcher_subgraph_node(state, config)
     assert result == {"raw_facts": "Facts for your research: the best pizza is made by pizza hut."}
     mock_search_web_func.assert_called()
     mock_read_webpage_func.assert_called_once()
 
 
 # Инкрементальный поиск (Добавление фактов)
-@patch('search_tool_draft.read_webpage.func')
-@patch('search_tool_draft.search_web.func')
-@patch('researcher_subgraph.llm')
+@patch('app.tools.search.read_webpage.func')
+@patch('app.tools.search.search_web.func')
+@patch('app.agents.researcher.llm')
 def test_incremental_search_branch(mock_llm, mock_search, mock_read):
     mock_llm_with_tools = MagicMock()
     mock_llm_with_tools.invoke.side_effect = [
@@ -74,7 +74,7 @@ def test_incremental_search_branch(mock_llm, mock_search, mock_read):
         facts_version=1
     )
 
-    result = researcher_subgraph.run_researcher_subgraph_node(state, {})
+    result = researcher.run_researcher_subgraph_node(state, {})
 
     # Проверяем, что новые факты приклеились к старым
     assert "Старые базовые факты." in result["raw_facts"]
@@ -87,9 +87,9 @@ def test_incremental_search_branch(mock_llm, mock_search, mock_read):
 
 
 # Ошибка рекурсии (Graceful shutdown)
-@patch('researcher_subgraph.app.invoke')
-@patch('researcher_subgraph.app.get_state')
-@patch('researcher_subgraph.llm')
+@patch('app.agents.researcher.app.invoke')
+@patch('app.agents.researcher.app.get_state')
+@patch('app.agents.researcher.llm')
 def test_recursion_error_graceful_shutdown(mock_llm, mock_get_state, mock_app_invoke):
     mock_app_invoke.side_effect = GraphRecursionError("Recursion limit")
 
@@ -107,7 +107,7 @@ def test_recursion_error_graceful_shutdown(mock_llm, mock_get_state, mock_app_in
     mock_llm.invoke.return_value = AIMessage(content="Финальная выжимка после обрыва")
 
     state = ResearchPaperState(research_topic="pizza", research_id=1)
-    result = researcher_subgraph.run_researcher_subgraph_node(state, {})
+    result = researcher.run_researcher_subgraph_node(state, {})
 
     # Проверяем, что вернулся результат от LLM, а не упала ошибка
     assert result["raw_facts"] == "Финальная выжимка после обрыва"
@@ -118,9 +118,9 @@ def test_recursion_error_graceful_shutdown(mock_llm, mock_get_state, mock_app_in
 
 
 # Ошибка рекурсии (Обрезка зависшего AIMessage)
-@patch('researcher_subgraph.app.invoke')
-@patch('researcher_subgraph.app.get_state')
-@patch('researcher_subgraph.llm')
+@patch('app.agents.researcher.app.invoke')
+@patch('app.agents.researcher.app.get_state')
+@patch('app.agents.researcher.llm')
 def test_recursion_error_ai_message_pop_and_incremental(mock_llm, mock_get_state, mock_app_invoke):
     mock_app_invoke.side_effect = GraphRecursionError("Recursion limit")
 
@@ -144,7 +144,7 @@ def test_recursion_error_ai_message_pop_and_incremental(mock_llm, mock_get_state
         macro_reviewer_feedback="More data",
         facts_version=1
     )
-    result = researcher_subgraph.run_researcher_subgraph_node(state, {})
+    result = researcher.run_researcher_subgraph_node(state, {})
 
     # Проверяем, что инкрементальная склейка работает даже при краше
     assert "--- ADDITIONAL RESEARCH DATA (PARTIAL) ---" in result["raw_facts"]

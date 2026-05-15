@@ -6,12 +6,12 @@ from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage, SystemMessage
 from langgraph.prebuilt import ToolNode
 
-from config import llm
-from search_tool_draft import search_web, read_webpage
+from app.config import llm
+from app.tools.search import search_web, read_webpage
 from langgraph.errors import GraphRecursionError
 
 import logging
-from schema import ResearcherState, ResearchPaperState
+from app.schema import ResearcherState, ResearchPaperState
 
 
 SYSTEM_PROMPT_RESEARCHER = """

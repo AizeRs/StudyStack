@@ -4,10 +4,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from config import llm
+from app.config import llm
 
 import logging
-from schema import WriterState, ResearchPaperState
+from app.schema import WriterState, ResearchPaperState
 
 
 SYSTEM_PROMPT_WRITER = """

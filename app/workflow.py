@@ -4,11 +4,11 @@ from langgraph.graph import StateGraph, START, END
 
 import logging
 
-from config import settings
-from researcher_subgraph import run_researcher_subgraph_node
-from writer_subgraph import run_writer_subgraph_node
-from reviewer_subgraph import run_macro_reviewer_subgraph_node
-from schema import ResearchPaperState
+from app.config import settings
+from app.agents.researcher import run_researcher_subgraph_node
+from app.agents.writer import run_writer_subgraph_node
+from app.agents.reviewer import run_macro_reviewer_subgraph_node
+from app.schema import ResearchPaperState
 
 def macro_reviewer_router(state: ResearchPaperState):
     if state.macro_reviewer_result == "approved":
@@ -75,11 +75,5 @@ def run_research_graph(research_topic: str, research_id: int) -> str:
     result = app.invoke(input_data, config=config)
 
     final_pydantic_state = ResearchPaperState(**result)
-    print("\n\n\n", "-="*10)
+    print("\n\n\n", "-="*15 + "-")
     return final_pydantic_state.main_paper_text
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    topic = input("Введите тему для исследования: ")
-    result = run_research_graph(topic, research_id=1)
-    print(result)

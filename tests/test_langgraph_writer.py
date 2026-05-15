@@ -1,11 +1,10 @@
 from unittest.mock import patch, MagicMock
-import pytest
 from langchain_core.messages import AIMessage
 
-from schema import ResearchPaperState
-from writer_subgraph import run_writer_subgraph_node
+from app.schema import ResearchPaperState
+from app.agents.writer import run_writer_subgraph_node
 
-@patch('writer_subgraph.llm')
+@patch('app.agents.writer.llm')
 def test_run_writer_subgraph_node(mock_llm: MagicMock):
     mock_llm.invoke.side_effect = [AIMessage("A perfect research paper text"),
                                    AIMessage("A second perfect research paper text"),

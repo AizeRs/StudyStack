@@ -1,7 +1,6 @@
-from config import settings
+from app.config import settings
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
-from typing import Optional
 from langchain_core.prompts import ChatPromptTemplate
 
 class PlanSection(BaseModel):
