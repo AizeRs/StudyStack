@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 from langchain_core.messages import AIMessage
 
 from app.schema import ResearchPaperState
@@ -34,10 +34,11 @@ def test_macro_reviewer_router(iteration, result, scores, feedback, expected):
     assert workflow.macro_reviewer_router(state) == expected
 
 
-@patch('app.agents.reviewer.app.invoke')
-@patch('app.agents.writer.app.invoke')
-@patch('app.agents.researcher.app.invoke')
-def test_run_research_graph_straight_approval(mock_researcher, mock_writer, mock_reviewer):
+@pytest.mark.asyncio
+@patch('app.agents.reviewer.app.ainvoke')
+@patch('app.agents.writer.app.ainvoke')
+@patch('app.agents.researcher.app.ainvoke')
+async def test_run_research_graph_straight_approval(mock_researcher, mock_writer, mock_reviewer):
     # Идеальный проход с первой итерации
     mock_researcher.return_value = {"messages": [AIMessage(content="Facts from researcher")]}
     mock_writer.return_value = {"messages": [AIMessage(content="Perfect first draft")]}
@@ -47,7 +48,7 @@ def test_run_research_graph_straight_approval(mock_researcher, mock_writer, mock
         "scores": [5.0, 5.0, 5.0, 5.0, 5.0]
     }
 
-    result = workflow.run_research_graph("Test Topic", research_id=201)
+    result = await workflow.run_research_graph("Test Topic", research_id=201)
 
     assert result == "Perfect first draft"
 
@@ -56,10 +57,11 @@ def test_run_research_graph_straight_approval(mock_researcher, mock_writer, mock
     mock_reviewer.assert_called_once()
 
 
-@patch('app.agents.reviewer.app.invoke')
-@patch('app.agents.writer.app.invoke')
-@patch('app.agents.researcher.app.invoke')
-def test_run_research_graph_rewrite_loop(mock_researcher, mock_writer, mock_reviewer):
+@pytest.mark.asyncio
+@patch('app.agents.reviewer.app.ainvoke')
+@patch('app.agents.writer.app.ainvoke')
+@patch('app.agents.researcher.app.ainvoke')
+async def test_run_research_graph_rewrite_loop(mock_researcher, mock_writer, mock_reviewer):
     # Ревьювер бракует текст, писатель переписывает
     mock_researcher.return_value = {"messages": [AIMessage(content="Facts")]}
 
@@ -83,7 +85,7 @@ def test_run_research_graph_rewrite_loop(mock_researcher, mock_writer, mock_revi
         }
     ]
 
-    result = workflow.run_research_graph("Test Topic", research_id=202)
+    result = await workflow.run_research_graph("Test Topic", research_id=202)
 
     assert result == "Fixed draft"
     mock_researcher.assert_called_once()  # Ресерчер не перевызывается
@@ -91,10 +93,11 @@ def test_run_research_graph_rewrite_loop(mock_researcher, mock_writer, mock_revi
     assert mock_reviewer.call_count == 2
 
 
-@patch('app.agents.reviewer.app.invoke')
-@patch('app.agents.writer.app.invoke')
-@patch('app.agents.researcher.app.invoke')
-def test_run_research_graph_needs_facts_loop(mock_researcher, mock_writer, mock_reviewer):
+@pytest.mark.asyncio
+@patch('app.agents.reviewer.app.ainvoke')
+@patch('app.agents.writer.app.ainvoke')
+@patch('app.agents.researcher.app.ainvoke')
+async def test_run_research_graph_needs_facts_loop(mock_researcher, mock_writer, mock_reviewer):
     # Ревьювер требует больше фактов, графа возвращается к ресерчеру
     mock_researcher.side_effect = [
         {"messages": [AIMessage(content="Initial facts")]},
@@ -119,7 +122,7 @@ def test_run_research_graph_needs_facts_loop(mock_researcher, mock_writer, mock_
         }
     ]
 
-    result = workflow.run_research_graph("Test Topic", research_id=203)
+    result = await workflow.run_research_graph("Test Topic", research_id=203)
 
     assert result == "Draft with all info"
     assert mock_researcher.call_count == 2

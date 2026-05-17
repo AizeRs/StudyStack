@@ -27,7 +27,7 @@ Workflow:
 """
 
 
-def agent_node(state: ReviewerState, config: RunnableConfig) -> dict:
+async def agent_node(state: ReviewerState, config: RunnableConfig) -> dict:
     extra_research_forbidden = config.get("configurable", {}).get("extra_research_forbidden", False)
 
     logging.info(f"[Reviewer Agent] Инициализация LLM. Строгий запрет на доресерч: {extra_research_forbidden}")
@@ -38,7 +38,8 @@ def agent_node(state: ReviewerState, config: RunnableConfig) -> dict:
         structured_llm = llm.with_structured_output(FirstReviewerResponse, method="function_calling")
 
     logging.info("[Reviewer Agent] Запуск генерации оценки...")
-    response: NoFactsFirstReviewerResponse | FirstReviewerResponse = structured_llm.invoke(state.messages)
+    response: NoFactsFirstReviewerResponse | FirstReviewerResponse \
+        = await structured_llm.ainvoke(state.messages)
 
     logging.info(f"[Reviewer Agent] Оценки: {response.scores}")
     logging.info(f"[Reviewer Agent] Вердикт: {response.review_result}")
@@ -59,7 +60,7 @@ checkpointer = MemorySaver()
 app = workflow.compile(checkpointer=checkpointer)
 
 
-def run_macro_reviewer_subgraph_node(state: ResearchPaperState, config: RunnableConfig) -> dict:
+async def run_macro_reviewer_subgraph_node(state: ResearchPaperState, config: RunnableConfig) -> dict:
     current_thread = f"reviewer_{state.research_id}_v{state.facts_version}"
     logging.info(f"СТАРТ СУБГРАФА: MACRO REVIEWER")
     logging.info(f"Ветка памяти (Thread ID): {current_thread}")
@@ -111,7 +112,7 @@ def run_macro_reviewer_subgraph_node(state: ResearchPaperState, config: Runnable
 
     input_data = {"messages": messages}
 
-    result = app.invoke(input_data, config=agent_config)
+    result = await app.ainvoke(input_data, config=agent_config)
     pydantic_result = ReviewerState(**result)
 
     changes = {

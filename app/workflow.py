@@ -59,7 +59,7 @@ app = workflow.compile(checkpointer=checkpointer)
 
 
 
-def run_research_graph(research_topic: str, research_id: int) -> str:
+async def run_research_graph(research_topic: str, research_id: int) -> str:
 
     config: RunnableConfig = {
         "configurable": {"thread_id": f"manager_{research_id}",
@@ -72,7 +72,7 @@ def run_research_graph(research_topic: str, research_id: int) -> str:
 
     logging.info("Запуск внешнего графа")
 
-    result = app.invoke(input_data, config=config)
+    result = await app.ainvoke(input_data, config=config)
 
     final_pydantic_state = ResearchPaperState(**result)
     print("\n\n\n", "-="*15 + "-")

@@ -48,9 +48,9 @@ my_tools = [search_web, read_webpage]
 tool_node = ToolNode(my_tools)
 
 
-def agent_node(state: ResearcherState) -> dict:
+async def agent_node(state: ResearcherState) -> dict:
     llm_with_tools = llm.bind_tools(my_tools)
-    response = llm_with_tools.invoke(state.messages)
+    response = await llm_with_tools.ainvoke(state.messages)
 
     return {"messages": [response]}
 
@@ -90,7 +90,7 @@ app = workflow.compile(checkpointer=checkpointer)
 
 
 
-def run_researcher_subgraph_node(state: ResearchPaperState, config: RunnableConfig) -> dict:
+async def run_researcher_subgraph_node(state: ResearchPaperState, config: RunnableConfig) -> dict:
 
     session_id = uuid4().hex[:8]
 
@@ -131,7 +131,7 @@ def run_researcher_subgraph_node(state: ResearchPaperState, config: RunnableConf
     try:
         logging.info("Инференс сборщика данных")
 
-        result = app.invoke(input_data, config=researcher_config)
+        result = await app.ainvoke(input_data, config=researcher_config)
 
         final_pydantic_state = ResearcherState(**result)
         if is_incremental_search:
@@ -145,7 +145,7 @@ def run_researcher_subgraph_node(state: ResearchPaperState, config: RunnableConf
     except GraphRecursionError:
         logging.info("Достигнут лимит вызовов тулов. Начинаем graceful shutdown")
 
-        crash_state = app.get_state(researcher_config)
+        crash_state = await app.aget_state(researcher_config)
 
         messages = crash_state.values.get("messages", [])
 
@@ -156,7 +156,7 @@ def run_researcher_subgraph_node(state: ResearchPaperState, config: RunnableConf
         if messages and isinstance(messages[-1], ToolMessage):
             messages[-1].content += "\n\n[СИСТЕМНОЕ УВЕДОМЛЕНИЕ]: Лимит поиска исчерпан. Сформируй итоговый ответ на основе этих данных."
 
-            final_result = llm.invoke(messages)
+            final_result = await llm.ainvoke(messages)
 
             if is_incremental_search:
                 return {"raw_facts": state.raw_facts + "\n\n--- ADDITIONAL RESEARCH DATA (PARTIAL) ---\n\n" +

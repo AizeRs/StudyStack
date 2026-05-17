@@ -1,4 +1,5 @@
-from unittest.mock import patch, MagicMock
+import pytest
+from unittest.mock import patch, MagicMock, AsyncMock
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphRecursionError
@@ -11,14 +12,17 @@ from app.agents import researcher
 # Это единственный выход, так как добавление оригинальных функций тулов в файле ресерчера происходит
 # сразу же во время импортирования функции run_researcher_subgraph_node в файл с тестами
 # и патчи @patch('app.agents.researcher.search_web') не успевают сработать
-@patch('app.tools.search.read_webpage.func')
-@patch('app.tools.search.search_web.func')
+@pytest.mark.asyncio
+@patch('app.tools.search.read_webpage.coroutine', new_callable=AsyncMock)
+@patch('app.tools.search.search_web.coroutine', new_callable=AsyncMock)
 @patch('app.agents.researcher.llm')
-def test_run_researcher_subgraph_node(mock_llm: MagicMock,
-                                      mock_search_web_func: MagicMock,
-                                      mock_read_webpage_func: MagicMock):
+async def test_run_researcher_subgraph_node(mock_llm: MagicMock,
+                                            mock_search_web_coro: AsyncMock,
+                                            mock_read_webpage_coro: AsyncMock):
     mock_llm_with_tools = MagicMock()
-    mock_llm_with_tools.invoke.side_effect = [
+
+    mock_ainvoke = AsyncMock()
+    mock_ainvoke.side_effect = [
         AIMessage(content="", tool_calls=[
             {
                 "name": "search_web",
@@ -39,30 +43,36 @@ def test_run_researcher_subgraph_node(mock_llm: MagicMock,
             }]),
         AIMessage(content="Facts for your research: the best pizza is made by pizza hut.")
     ]
+    mock_llm_with_tools.ainvoke = mock_ainvoke
 
     mock_llm.bind_tools.return_value = mock_llm_with_tools
 
-    mock_search_web_func.return_value = "Some webpages"
-    mock_read_webpage_func.return_value = "Some interesting text"
+    mock_search_web_coro.return_value = "Some webpages"
+    mock_read_webpage_coro.return_value = "Some interesting text"
 
     state = ResearchPaperState(research_topic="where can i buy the best pizza?", research_id=1)
     config: RunnableConfig = {"configurable": {"researcher_recursion_limit": 10}}
 
-    result = researcher.run_researcher_subgraph_node(state, config)
+    result = await researcher.run_researcher_subgraph_node(state, config)
     assert result == {"raw_facts": "Facts for your research: the best pizza is made by pizza hut."}
-    mock_search_web_func.assert_called()
-    mock_read_webpage_func.assert_called_once()
+    mock_search_web_coro.assert_called()
+    mock_read_webpage_coro.assert_called_once()
 
 
 # Инкрементальный поиск (Добавление фактов)
-@patch('app.tools.search.read_webpage.func')
-@patch('app.tools.search.search_web.func')
+@pytest.mark.asyncio
+@patch('app.tools.search.read_webpage.coroutine', new_callable=AsyncMock)
+@patch('app.tools.search.search_web.coroutine', new_callable=AsyncMock)
 @patch('app.agents.researcher.llm')
-def test_incremental_search_branch(mock_llm, mock_search, mock_read):
+async def test_incremental_search_branch(mock_llm, mock_search_coro, mock_read_coro):
     mock_llm_with_tools = MagicMock()
-    mock_llm_with_tools.invoke.side_effect = [
+
+    mock_ainvoke = AsyncMock()
+    mock_ainvoke.side_effect = [
         AIMessage(content="Специфичные новые факты по запросу критика.")
     ]
+    mock_llm_with_tools.ainvoke = mock_ainvoke
+
     mock_llm.bind_tools.return_value = mock_llm_with_tools
 
     state = ResearchPaperState(
@@ -74,7 +84,7 @@ def test_incremental_search_branch(mock_llm, mock_search, mock_read):
         facts_version=1
     )
 
-    result = researcher.run_researcher_subgraph_node(state, {})
+    result = await researcher.run_researcher_subgraph_node(state, {})
 
     # Проверяем, что новые факты приклеились к старым
     assert "Старые базовые факты." in result["raw_facts"]
@@ -87,11 +97,12 @@ def test_incremental_search_branch(mock_llm, mock_search, mock_read):
 
 
 # Ошибка рекурсии (Graceful shutdown)
-@patch('app.agents.researcher.app.invoke')
-@patch('app.agents.researcher.app.get_state')
+@pytest.mark.asyncio
+@patch('app.agents.researcher.app.ainvoke')
+@patch('app.agents.researcher.app.aget_state')
 @patch('app.agents.researcher.llm')
-def test_recursion_error_graceful_shutdown(mock_llm, mock_get_state, mock_app_invoke):
-    mock_app_invoke.side_effect = GraphRecursionError("Recursion limit")
+async def test_recursion_error_graceful_shutdown(mock_llm, mock_aget_state, mock_app_ainvoke):
+    mock_app_ainvoke.side_effect = GraphRecursionError("Recursion limit")
 
     # Симулируем стейт, где последним сообщением был ответ от тула
     mock_state = MagicMock()
@@ -101,28 +112,31 @@ def test_recursion_error_graceful_shutdown(mock_llm, mock_get_state, mock_app_in
             ToolMessage(content="Результаты поиска про пиццу", tool_call_id="1")
         ]
     }
-    mock_get_state.return_value = mock_state
+    mock_aget_state.return_value = mock_state
 
-    # Фолбэк-ответ модели на основе обрезанных данных через mock_llm.invoke
-    mock_llm.invoke.return_value = AIMessage(content="Финальная выжимка после обрыва")
+    # Фолбэк-ответ модели на основе обрезанных данных через mock_llm.ainvoke
+    mock_ainvoke = AsyncMock()
+    mock_ainvoke.return_value = AIMessage(content="Финальная выжимка после обрыва")
+    mock_llm.ainvoke = mock_ainvoke
 
     state = ResearchPaperState(research_topic="pizza", research_id=1)
-    result = researcher.run_researcher_subgraph_node(state, {})
+    result = await researcher.run_researcher_subgraph_node(state, {})
 
     # Проверяем, что вернулся результат от LLM, а не упала ошибка
     assert result["raw_facts"] == "Финальная выжимка после обрыва"
 
     # Проверяем, что к ToolMessage реально приклеилось системное уведомление
-    called_messages = mock_llm.invoke.call_args[0][0]
+    called_messages = mock_llm.ainvoke.call_args[0][0]
     assert "[СИСТЕМНОЕ УВЕДОМЛЕНИЕ]: Лимит поиска исчерпан" in called_messages[-1].content
 
 
 # Ошибка рекурсии (Обрезка зависшего AIMessage)
-@patch('app.agents.researcher.app.invoke')
-@patch('app.agents.researcher.app.get_state')
+@pytest.mark.asyncio
+@patch('app.agents.researcher.app.ainvoke')
+@patch('app.agents.researcher.app.aget_state')
 @patch('app.agents.researcher.llm')
-def test_recursion_error_ai_message_pop_and_incremental(mock_llm, mock_get_state, mock_app_invoke):
-    mock_app_invoke.side_effect = GraphRecursionError("Recursion limit")
+async def test_recursion_error_ai_message_pop_and_incremental(mock_llm, mock_aget_state, mock_app_ainvoke):
+    mock_app_ainvoke.side_effect = GraphRecursionError("Recursion limit")
 
     # Симулируем стейт, где граф упал сразу после того, как AI захотел вызвать тул
     mock_state = MagicMock()
@@ -133,8 +147,11 @@ def test_recursion_error_ai_message_pop_and_incremental(mock_llm, mock_get_state
             AIMessage(content="", tool_calls=[{"name": "search_web", "args": {}, "id": "2"}])
         ]
     }
-    mock_get_state.return_value = mock_state
-    mock_llm.invoke.return_value = AIMessage(content="Экстренные новые факты")
+    mock_aget_state.return_value = mock_state
+
+    mock_ainvoke = AsyncMock()
+    mock_ainvoke.return_value = AIMessage(content="Экстренные новые факты")
+    mock_llm.ainvoke = mock_ainvoke
 
     state = ResearchPaperState(
         research_topic="pizza",
@@ -144,13 +161,13 @@ def test_recursion_error_ai_message_pop_and_incremental(mock_llm, mock_get_state
         macro_reviewer_feedback="More data",
         facts_version=1
     )
-    result = researcher.run_researcher_subgraph_node(state, {})
+    result = await researcher.run_researcher_subgraph_node(state, {})
 
     # Проверяем, что инкрементальная склейка работает даже при краше
     assert "--- ADDITIONAL RESEARCH DATA (PARTIAL) ---" in result["raw_facts"]
     assert "Экстренные новые факты" in result["raw_facts"]
     assert result["facts_version"] == 2
 
-    called_messages = mock_llm.invoke.call_args[0][0]
+    called_messages = mock_llm.ainvoke.call_args[0][0]
     assert not isinstance(called_messages[-1], AIMessage)
     assert isinstance(called_messages[-1], ToolMessage)

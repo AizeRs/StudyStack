@@ -23,8 +23,8 @@ Output: A ready-to-publish document based exclusively on the provided evidence.
 """
 
 
-def agent_node(state: WriterState) -> dict:
-    response = llm.invoke(state.messages)
+async def agent_node(state: WriterState) -> dict:
+    response = await llm.ainvoke(state.messages)
 
     return {"messages": [response]}
 
@@ -41,7 +41,7 @@ checkpointer = MemorySaver()
 app = workflow.compile(checkpointer=checkpointer)
 
 
-def run_writer_subgraph_node(state: ResearchPaperState) -> dict:
+async def run_writer_subgraph_node(state: ResearchPaperState) -> dict:
 
     config: RunnableConfig = {
         "configurable": {"thread_id": f"writer_{state.research_id}_v{state.facts_version}"},
@@ -60,7 +60,7 @@ def run_writer_subgraph_node(state: ResearchPaperState) -> dict:
 
     logging.info("Инференс писателя текста")
 
-    result = app.invoke(input_data, config=config)
+    result = await app.ainvoke(input_data, config=config)
 
     final_pydantic_state = WriterState(**result)
     return {"main_paper_text": final_pydantic_state.messages[-1].content}
