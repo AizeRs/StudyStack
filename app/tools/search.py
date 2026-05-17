@@ -1,25 +1,31 @@
-import requests
-from pydantic import BaseModel, Field
+import asyncio
 
+from pydantic import BaseModel, Field
 from app.config import cheap_llm
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage
 from ddgs import DDGS
+import httpx
 import logging
 
 
+def _fetch_ddgs(query: str, max_results: int):
+    results = []
+    with DDGS() as ddgs:
+        for r in ddgs.text(query, max_results=max_results):
+            results.append(f"Title: {r['title']}\nSnippet: {r['body']}\nURL: {r['href']}\n---")
+    return results
+
+
 @tool
-def search_web(query: str, max_results: int = 10) -> str:
+async def search_web(query: str, max_results: int = 10) -> str:
     """
     Useful for searching for information on the internet.
     It accepts a search query and returns titles, snippets, and links (URLs) to websites.
     """
     logging.info(f"Поиск информации по теме {query}")
     try:
-        results = []
-        with DDGS() as ddgs:
-            for r in ddgs.text(query, max_results=max_results):
-                results.append(f"Title: {r['title']}\nSnippet: {r['body']}\nURL: {r['href']}\n---")
+        results = await asyncio.to_thread(_fetch_ddgs, query, max_results)
 
         logging.info("Результат поиска:")
         if not results:
@@ -36,7 +42,7 @@ class ReadWebpageArgs(BaseModel):
 
 
 @tool(args_schema=ReadWebpageArgs)
-def read_webpage(url: str):
+async def read_webpage(url: str):
     """
     Extracts the full text content of a web page.
     It accepts the URL of the page (which you previously found via search_web)
@@ -50,11 +56,25 @@ def read_webpage(url: str):
     }
 
     try:
-        response = requests.get(target_url, headers=headers)
-        response.raise_for_status()
-        response.encoding = 'utf-8'
-    except requests.RequestException as e:
-        logging.error(f"Ошибка HTTP при запросе {url}: {e}")
+        async with httpx.AsyncClient() as client:
+            response = await client.get(target_url, headers=headers)
+            response.raise_for_status()
+            response.encoding = 'utf-8'
+
+    except httpx.HTTPStatusError as e:
+        # Сервер доступен, но вернул ошибку
+        logging.error(f"Ошибка ответа: Сервер вернул {e.response.status_code} при запросе к {e.request.url}")
+        return f"Не удалось загрузить страницу. Ошибка: {str(e)}"
+
+    except httpx.RequestError as e:
+        # Проблемы с сетью: сервер недоступен, таймаут, отвал DNS
+        logging.error(f"Ошибка сети: Произошла ошибка при запросе к {e.request.url}. Детали: {e}")
+        return f"Не удалось загрузить страницу. Ошибка: {str(e)}"
+
+    except httpx.HTTPError as e:
+        # Глобальный fallback для любых других непредвиденных ошибок httpx
+        print(f"")
+        logging.error(f"Критическая ошибка HTTPX: {e}")
         return f"Не удалось загрузить страницу. Ошибка: {str(e)}"
 
     raw_text = response.text[:40000]
@@ -74,7 +94,7 @@ def read_webpage(url: str):
 
     try:
         # Вызов дешевой модели для сжатия
-        compressed_msg = cheap_llm.invoke([
+        compressed_msg = await cheap_llm.ainvoke([
             SystemMessage(content=system_prompt),
             HumanMessage(content=f"Текст для обработки:\n{raw_text}")
         ])
