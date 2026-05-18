@@ -1,3 +1,5 @@
+from typing import Any, AsyncGenerator
+
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, START, END
@@ -59,7 +61,7 @@ app = workflow.compile(checkpointer=checkpointer)
 
 
 
-async def run_research_graph(research_topic: str, research_id: int) -> str:
+async def run_research_graph(research_topic: str, research_id: str) -> str:
 
     config: RunnableConfig = {
         "configurable": {"thread_id": f"manager_{research_id}",
@@ -77,3 +79,23 @@ async def run_research_graph(research_topic: str, research_id: int) -> str:
     final_pydantic_state = ResearchPaperState(**result)
     print("\n\n\n", "-="*15 + "-")
     return final_pydantic_state.main_paper_text
+
+async def stream_research_graph(research_topic: str, research_id: str) \
+        -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
+
+    config: RunnableConfig = {
+        "configurable": {"thread_id": f"manager_{research_id}",
+                         "macro_reviewer_max_iterations": settings.reviewers.macro_reviewer_max_iterations,
+                         "researcher_recursion_limit": settings.researchers.recursion_limit},
+        "recursion_limit": 50,
+    }
+
+    input_data = {"research_topic": research_topic, "research_id": research_id}
+
+    logging.info("Запуск внешнего графа")
+
+    async for event in app.astream(input_data, config=config, stream_mode="updates"):
+        for node_name, state_update in event.items():
+            logging.info(f"Узел '{node_name}' завершил работу.")
+
+            yield node_name, state_update

@@ -22,7 +22,7 @@ class ReviewerState(BaseModel):
 class ResearchPaperState(BaseModel):
     research_topic: str
 
-    research_id: int
+    research_id: str
 
     # researcher
     raw_facts: Optional[str] = None

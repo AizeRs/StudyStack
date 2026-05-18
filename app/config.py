@@ -20,6 +20,8 @@ class ReviewersSettings(BaseModel):
     macro_reviewer_first_threshold: float = Field(default=4.5)
     macro_reviewer_second_threshold: float = Field(default=4.0)
 
+class TelegramSettings(BaseModel):
+    token: SecretStr
 
 class Settings(BaseSettings):
     use_local_llm: bool = False
@@ -31,10 +33,10 @@ class Settings(BaseSettings):
 
     reviewers: ReviewersSettings = ReviewersSettings()
 
+    telegram: Optional[TelegramSettings] = None
 
     model_config = SettingsConfigDict(env_file=BASE_DIR / ".env",
                                       env_nested_delimiter="__")
-
 
     @model_validator(mode='after')
     def check_llm_config(self) -> 'Settings':
