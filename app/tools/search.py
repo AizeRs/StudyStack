@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 
 from pydantic import BaseModel, Field
 from app.config import cheap_llm
@@ -13,28 +14,38 @@ def _fetch_ddgs(query: str, max_results: int):
     results = []
     with DDGS() as ddgs:
         for r in ddgs.text(query, max_results=max_results):
-            results.append(f"Title: {r['title']}\nSnippet: {r['body']}\nURL: {r['href']}\n---")
+            results.append(r)
     return results
 
 
-@tool
-async def search_web(query: str, max_results: int = 10) -> str:
+@tool(response_format="content_and_artifact")
+async def search_web(query: str, max_results: int = 10) -> tuple[str, dict]:
     """
     Useful for searching for information on the internet.
-    It accepts a search query and returns titles, snippets, and links (URLs) to websites.
+    Returns doc_ids and snippets.
     """
     logging.info(f"Поиск информации по теме {query}")
     try:
         results = await asyncio.to_thread(_fetch_ddgs, query, max_results)
 
-        logging.info("Результат поиска:")
         if not results:
-            logging.info("Ничего не найдено.")
-            return "Ничего не найдено."
-        logging.info(f"Найдено {len(results)} ссылок. Первая из них: {results[0]}")
-        return "\n".join(results)
+            return "Ничего не найдено.", {}
+
+        results_text = []
+        url_registry = {}
+
+        for r in results:
+            doc_id = f"doc_{uuid.uuid4().hex[:8]}"
+            url_registry[doc_id] = r['href']
+            results_text.append(f"ID: {doc_id}\nTitle: {r['title']}\nSnippet: {r['body']}\n---")
+
+        text_for_llm = "\n".join(results_text)
+
+        # Кортеж: (текст, артефакт)
+        return text_for_llm, url_registry
+
     except Exception as e:
-        return f"Ошибка при поиске: {str(e)}"
+        return f"Ошибка при поиске: {str(e)}", {}
 
 
 class ReadWebpageArgs(BaseModel):

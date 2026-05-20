@@ -8,8 +8,21 @@ from pydantic import BaseModel, Field
 class WriterState(BaseModel):
     messages: Annotated[list[AnyMessage], add_messages] = Field(default_factory=list)
 
-class ResearcherState(BaseModel):
+
+def merge_registries(left: dict, right: dict) -> dict:
+    """Безопасно объединяет реестры ссылок"""
+    return {**left, **right}
+
+class SourceFinderState(BaseModel):
     messages: Annotated[list[AnyMessage], add_messages] = Field(default_factory=list)
+    url_registry: Annotated[dict[str, str], merge_registries] = Field(default_factory=dict)
+
+    final_doc_ids: list[str] = Field(default_factory=list)
+
+class FinalSources(BaseModel):
+    doc_ids: list[str] = Field(
+        description="Точный список ВСЕХ релевантных doc_id. Строго запрещено использовать диапазоны или сокращения."
+    )
 
 class ReviewerState(BaseModel):
     messages: Annotated[list[AnyMessage], add_messages] = Field(default_factory=list)
