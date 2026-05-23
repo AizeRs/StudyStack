@@ -1,40 +1,12 @@
-from app.config import settings
-from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
+from app.config import llm
 from langchain_core.prompts import ChatPromptTemplate
-
-class PlanSection(BaseModel):
-    name: str = Field(description="Name of the section")
-    description: str = Field(description="Detailed description of the section")
-    page_count: float = Field(description="Page count of the section")
-
-class PlannerResponse(BaseModel):
-    reasoning : str = Field(
-        description="Your reasoning about the plan. Here you can count different blocks' pages, so that they sum up to "
-                    "the exact number needed. Finish this block only after you've completed drafting the plan "
-                    "and rechecked that you're ready to write it.")
-
-    plan : list[PlanSection] = Field(
-        description="Field for the plan. List items should represent paragraphs.")
+from app.schema import ResearchPaperState, PlannerResponse
 
 
-def main():
-
-    paper_topic = input("Тема работы: ")
-    page_count = int(input("Количество страниц: "))
-    academic_level = input("Академический уровень: ")
-    additional_instructions = input("Дополнительные инструкции: ")
-
-    llm = ChatOpenAI(
-        model=settings.llm.model_name,
-        api_key=settings.llm.api_key,
-        base_url=settings.llm.base_url,
-        temperature=0.0,
-        extra_body={"thinking": {"type": "disabled"}}
-    )
-
+async def macro_planner_node(state: ResearchPaperState):
+    # Узел планировщика: формирует макро-план на основе вводных данных
     prompt = ChatPromptTemplate.from_messages([
-        ("system", f"""
+        ("system", """
 Role: You are an expert Academic Architect and Research Strategist. Your sole purpose is to design comprehensive, logical, and high-quality outlines for school and college reports (research papers). Your output serves as the foundational blueprint for downstream AI writing models.
 Objective: Transform a given topic into a detailed, hierarchical outline that ensures academic rigor, flow, and depth.
 Operational Guidelines:
@@ -46,7 +18,7 @@ Operational Guidelines:
     The total length of the final paper should be exactly the number of pages the user told you. Each section has a page count field, decide how many pages each section needs and distribute the length among the sections. During the reasoning stage, sum up all the page count fields and recheck that the total number of pages meets the requirements.
 Required Outline Components:
     Introduction: Must specify the background, problem statement, and objectives.
-    Main Body: Clearly numbered chapters and sub-sections with distinct thematic focuses.
+    Main Body: Clearly numbered chapters and sub-sections with distinct thematic focuses. CRITICAL: You MUST include at least 2-3 main body chapters. The total number of chapters in the outline (including Intro, Conclusion, and Bibliography) MUST be at least 5.
     Conclusion: Summary of findings, final synthesis, and suggestions for further study.
     Bibliography/References: A dedicated section for source attribution.
 Tone & Style:
@@ -66,19 +38,14 @@ Ensure the logical flow follows: Introduction -> Literature Review -> Core Analy
     ])
 
     structured_llm = llm.with_structured_output(PlannerResponse, method="function_calling")
-
     planner_chain = prompt | structured_llm
 
-    result = planner_chain.invoke({
-        "paper_topic": paper_topic,
-        "page_count": page_count,
-        "academic_level": academic_level,
-        "additional_instructions": additional_instructions,
+    # Передача данных из состояния в промпт
+    result = await planner_chain.ainvoke({
+        "paper_topic": state.research_topic,
+        "page_count": state.research_length,
+        "academic_level": state.academic_level,
+        "additional_instructions": state.additional_instructions,
     })
 
-    print(result.reasoning)
-    print(*result.plan, sep='\n')
-
-
-if __name__ == "__main__":
-    main()
+    return {"macro_plan": result.plan}
