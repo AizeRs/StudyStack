@@ -1,3 +1,9 @@
+"""
+Модуль конфигурации приложения.
+Отвечает за загрузку переменных окружения через pydantic-settings
+и глобальную инициализацию клиентов языковых моделей (LLM).
+"""
+import logging
 from pathlib import Path
 from langchain_openai import ChatOpenAI
 from pydantic import Field, BaseModel, model_validator, SecretStr
@@ -12,13 +18,7 @@ class LLMSettings(BaseModel):
     model_name: str
 
 class ResearcherSettings(BaseModel):
-    api_key: SecretStr
     recursion_limit: int = Field(default=40)
-
-class ReviewersSettings(BaseModel):
-    macro_reviewer_max_iterations: int = Field(default=4)
-    macro_reviewer_first_threshold: float = Field(default=4.5)
-    macro_reviewer_second_threshold: float = Field(default=4.0)
 
 class TelegramSettings(BaseModel):
     token: SecretStr
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     researchers: ResearcherSettings
 
-    reviewers: ReviewersSettings = ReviewersSettings()
+
 
     telegram: Optional[TelegramSettings] = None
 
@@ -69,7 +69,7 @@ else:
         extra_body=extra_body
     )
     if not settings.cheap_llm:
-        print("!"*10, "\n", "WARNING!!! USING PRICEY NON-LOCAL LLM AS A CHEAP ONE FOR TEXT COMPRESSION\n", "!"*10)
+        logging.warning("USING PRICEY NON-LOCAL LLM AS A CHEAP ONE FOR TEXT COMPRESSION")
         cheap_llm = llm
 
 if settings.cheap_llm:
