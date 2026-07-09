@@ -63,8 +63,8 @@
 
 1. Клонируйте репозиторий:
    ```bash
-   git clone https://github.com/your-repo/studystack.git
-   cd studystack
+   git clone https://github.com/AizeRs/StudyStack.git
+   cd StudyStack
    ```
 
 2. Настройка виртуального окружения:
